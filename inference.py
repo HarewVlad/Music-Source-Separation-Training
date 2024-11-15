@@ -162,7 +162,7 @@ def proc_folder(args):
             if 'state_dict' in state_dict:
                 state_dict = state_dict['state_dict']
         else:
-            state_dict = torch.load(args.start_check_point, map_location=device, weights_only=True)
+            state_dict = torch.load(args.start_check_point, map_location=device, weights_only=False)
         model.load_state_dict(state_dict)
     print("Instruments: {}".format(config.training.instruments))
 
