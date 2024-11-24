@@ -25,99 +25,6 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-# def run_folder(model, args, config, device, verbose=False):
-#     start_time = time.time()
-#     model.eval()
-#     all_mixtures_path = glob.glob(args.input_folder + '/*.*')
-#     all_mixtures_path.sort()
-#     print('Total files found: {}'.format(len(all_mixtures_path)))
-
-#     instruments = prefer_target_instrument(config)
-
-#     os.makedirs(args.store_dir, exist_ok=True)
-
-#     if not verbose:
-#         all_mixtures_path = tqdm(all_mixtures_path, desc="Total progress")
-
-#     if args.disable_detailed_pbar:
-#         detailed_pbar = False
-#     else:
-#         detailed_pbar = True
-
-#     for path in all_mixtures_path:
-#         print("Starting processing track: ", path)
-#         if not verbose:
-#             all_mixtures_path.set_postfix({'track': os.path.basename(path)})
-#         try:
-#             mix, sr = librosa.load(path, sr=44100, mono=False)
-#         except Exception as e:
-#             print('Cannot read track: {}'.format(path))
-#             print('Error message: {}'.format(str(e)))
-#             continue
-
-#         # Convert mono to stereo if needed
-#         if len(mix.shape) == 1:
-#             mix = np.stack([mix, mix], axis=0)
-
-#         mix_orig = mix.copy()
-#         if 'normalize' in config.inference:
-#             if config.inference['normalize'] is True:
-#                 mono = mix.mean(0)
-#                 mean = mono.mean()
-#                 std = mono.std()
-#                 mix = (mix - mean) / std
-
-#         if args.use_tta:
-#             # orig, channel inverse, polarity inverse
-#             track_proc_list = [mix.copy(), mix[::-1].copy(), -1. * mix.copy()]
-#         else:
-#             track_proc_list = [mix.copy()]
-
-#         full_result = []
-#         for mix in track_proc_list:
-#             waveforms = demix(config, model, mix, device, pbar=detailed_pbar, model_type=args.model_type)
-#             full_result.append(waveforms)
-
-#         # Average all values in single dict
-#         waveforms = full_result[0]
-#         for i in range(1, len(full_result)):
-#             d = full_result[i]
-#             for el in d:
-#                 if i == 2:
-#                     waveforms[el] += -1.0 * d[el]
-#                 elif i == 1:
-#                     waveforms[el] += d[el][::-1].copy()
-#                 else:
-#                     waveforms[el] += d[el]
-#         for el in waveforms:
-#             waveforms[el] = waveforms[el] / len(full_result)
-
-#         # Create a new `instr` in instruments list, 'instrumental'
-#         if args.extract_instrumental:
-#             instr = 'vocals' if 'vocals' in instruments else instruments[0]
-#             if 'instrumental' not in instruments:
-#                 instruments.append('instrumental')
-#             # Output "instrumental", which is an inverse of 'vocals' or the first stem in list if 'vocals' absent
-#             waveforms['instrumental'] = mix_orig - waveforms[instr]
-
-#         for instr in instruments:
-#             estimates = waveforms[instr].T
-#             if 'normalize' in config.inference:
-#                 if config.inference['normalize'] is True:
-#                     estimates = estimates * std + mean
-#             file_name, _ = os.path.splitext(os.path.basename(path))
-#             if args.flac_file:
-#                 output_file = os.path.join(args.store_dir, f"{file_name}_{instr}.flac")
-#                 subtype = 'PCM_16' if args.pcm_type == 'PCM_16' else 'PCM_24'
-#                 sf.write(output_file, estimates, sr, subtype=subtype)
-#             else:
-#                 output_file = os.path.join(args.store_dir, f"{file_name}_{instr}.wav")
-#                 sf.write(output_file, estimates, sr, subtype='FLOAT')
-
-#     time.sleep(1)
-#     print("Elapsed time: {:.2f} sec".format(time.time() - start_time))
-
-
 def run_folder(model, args, config, device, verbose=False):
     start_time = time.time()
     model.eval()
@@ -280,7 +187,7 @@ def proc_folder(args):
     parser.add_argument(
         "--separation_mode",
         type=str,
-        choices=["vocals", "drums", "bass"],
+        choices=["vocals", "drums", "bass", "piano", "guitar"],
         default="",
         help="Separation mode",
     )
