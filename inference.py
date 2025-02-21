@@ -1,5 +1,5 @@
 # coding: utf-8
-__author__ = "Roman Solovyev (ZFTurbo): https://github.com/ZFTurbo/"
+__author__ = "Vladislav Petrenko (SBER)"
 
 import argparse
 import time
@@ -15,9 +15,9 @@ import torch.nn as nn
 from utils import prefer_target_instrument
 import torchaudio
 
-# Using the embedded version of Python can also correctly import the utils module.
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
+# Using the embedded version of Python can also correctly import the utils module
+current_path = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_path)
 from utils import demix, get_model_from_config
 
 import warnings
@@ -25,27 +25,33 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-def run_folder(model, args, config, device, verbose=False):
+def run_audio_processing(model, args, config, device, verbose=False):
     start_time = time.time()
     model.eval()
-    all_mixtures_path = glob.glob(os.path.join(args.input_folder, "*.*"))
-    all_mixtures_path.sort()
-    print("Total files found: {}".format(len(all_mixtures_path)))
+
+    # Handle input audio files (single file or multiple files)
+    if args.input_audio_path:
+        audio_files = [args.input_audio_path]
+    else:
+        audio_files = glob.glob(os.path.join(args.input_folder, "*.*"))
+        audio_files.sort()
+
+    print(f"Total files found: {len(audio_files)}")
 
     instruments = prefer_target_instrument(config)
 
-    os.makedirs(args.store_dir, exist_ok=True)
+    os.makedirs(args.output_path, exist_ok=True)
 
     if not verbose:
-        all_mixtures_path = tqdm(all_mixtures_path, desc="Total progress")
+        audio_files = tqdm(audio_files, desc="Total progress")
 
     detailed_pbar = not args.disable_detailed_pbar
 
-    for path in all_mixtures_path:
+    for path in audio_files:
         if verbose:
             print("Starting processing track: ", path)
         else:
-            all_mixtures_path.set_postfix({"track": os.path.basename(path)})
+            audio_files.set_postfix({"track": os.path.basename(path)})
 
         try:
             mix_tensor, sr = torchaudio.load(path)
@@ -111,26 +117,26 @@ def run_folder(model, args, config, device, verbose=False):
             if "instrumental" not in instruments:
                 instruments.append("instrumental")
 
-            waveforms["instrumental"] = mix_orig - waveforms[args.separation_mode]
+            waveforms["instrumental"] = mix_orig - waveforms[args.instrument]
 
         # Save outputs
-        for instr in instruments:
-            estimates = waveforms[instr].T
+        for instrument in instruments:
+            estimates = waveforms[instrument].T
             if config.inference.get("normalize", False):
                 estimates = estimates * std + mean
             file_name, _ = os.path.splitext(os.path.basename(path))
             if args.flac_file:
-                output_file = os.path.join(args.store_dir, f"{file_name}_{instr}.flac")
+                output_file = os.path.join(args.output_path, f"{instrument}.flac")
                 subtype = "PCM_16" if args.pcm_type == "PCM_16" else "PCM_24"
                 sf.write(output_file, estimates, sr, subtype=subtype)
             else:
-                output_file = os.path.join(args.store_dir, f"{file_name}_{instr}.wav")
+                output_file = os.path.join(args.output_path, f"{instrument}.wav")
                 sf.write(output_file, estimates, sr, subtype="FLOAT")
 
     print(f"Elapsed time: {time.time() - start_time:.2f} sec")
 
 
-def proc_folder(args):
+def process_audio_files(args):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model_type",
@@ -140,29 +146,30 @@ def proc_folder(args):
     )
     parser.add_argument("--config_path", type=str, help="path to config file")
     parser.add_argument(
-        "--start_check_point",
+        "--start_checkpoint",
         type=str,
         default="",
-        help="Initial checkpoint to valid weights",
     )
     parser.add_argument(
-        "--input_folder", type=str, help="folder with mixtures to process"
+        "--input_folder", type=str,
     )
     parser.add_argument(
-        "--store_dir", default="", type=str, help="path to store results as wav file"
+        "--input_audio_path", type=str,
     )
     parser.add_argument(
-        "--device_ids", nargs="+", type=int, default=0, help="list of gpu ids"
+        "--output_path", default="", type=str,
+    )
+    parser.add_argument(
+        "--device_ids", nargs="+", type=int, default=0,
     )
     parser.add_argument(
         "--extract_instrumental",
         action="store_true",
-        help="invert vocals to get instrumental if provided",
+        help="Invert vocals to get instrumental if provided",
     )
     parser.add_argument(
         "--disable_detailed_pbar",
         action="store_true",
-        help="disable detailed progress bar",
     )
     parser.add_argument(
         "--force_cpu",
@@ -170,7 +177,7 @@ def proc_folder(args):
         help="Force the use of CPU even if CUDA is available",
     )
     parser.add_argument(
-        "--flac_file", action="store_true", help="Output flac file instead of wav"
+        "--flac_file", action="store_true", help="Output FLAC file instead of WAV"
     )
     parser.add_argument(
         "--pcm_type",
@@ -185,16 +192,14 @@ def proc_folder(args):
         help="Flag adds test time augmentation during inference (polarity and channel inverse). While this triples the runtime, it reduces noise and slightly improves prediction quality.",
     )
     parser.add_argument(
-        "--separation_mode",
+        "--instrument",
         type=str,
         choices=["vocals", "drums", "bass", "piano", "guitar"],
         default="",
-        help="Separation mode",
+        help="Instrument to extract from initial audio",
     )
-    if args is None:
-        args = parser.parse_args()
-    else:
-        args = parser.parse_args(args)
+
+    args = parser.parse_args(args)
 
     # Device selection optimization
     if args.force_cpu or not torch.cuda.is_available():
@@ -218,11 +223,11 @@ def proc_folder(args):
     model, config = get_model_from_config(args.model_type, args.config_path)
 
     # Load checkpoint if provided
-    if args.start_check_point:
-        print("Loading checkpoint:", args.start_check_point)
+    if args.start_checkpoint:
+        print("Loading checkpoint:", args.start_checkpoint)
         checkpoint_load_start_time = time.time()
         # Use 'map_location' to load directly to the desired device
-        state_dict = torch.load(args.start_check_point, map_location=device)
+        state_dict = torch.load(args.start_checkpoint, map_location=device)
         # Handle model-specific keys
         if args.model_type in ["htdemucs", "apollo"]:
             state_dict = state_dict.get("state", state_dict)
@@ -263,8 +268,8 @@ def proc_folder(args):
         f"Model loaded and moved to {device} in {time.time() - model_load_start_time:.2f} sec"
     )
 
-    run_folder(model, args, config, device, verbose=True)
+    run_audio_processing(model, args, config, device, verbose=True)
 
 
 if __name__ == "__main__":
-    proc_folder(None)
+    process_audio_files(None)
